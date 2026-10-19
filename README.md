@@ -10,8 +10,9 @@ of repeating the SSO login every time credentials expire.
 
 - Credentials never leave your machine. The app only talks to AWS itself
   (IAM Identity Center and the AWS sign-in endpoint). No third-party servers.
-- Built and tested on **macOS**. Windows and Linux builds exist in the code
-  but are untested.
+- Built and tested on **macOS**. The code is written to run on Windows and
+  Linux too (see [Platform support](#platform-support)), but those paths
+  haven't been built or run yet.
 
 ## Features
 
@@ -33,14 +34,25 @@ credentials are valid.
 
 ## Requirements
 
-- macOS, Python 3.10+ (only needed to build)
+- Python 3.10+ (only needed to build). The app itself has code paths for
+  macOS, Windows and Linux, but **only macOS has actually been built, run
+  and tested** — see [Platform support](#platform-support) below.
 - An IAM Identity Center **access portal URL**, usually
   `https://<your-org>.awsapps.com/start`
-- Cyberduck: use the **latest version**
+- Cyberduck: use the **latest version** (macOS integration only)
+
+## Platform support
+
+The app is written to be cross-platform — `app_paths.py` and
+`platform_startup/` branch on `sys.platform` for app-data locations and
+start-at-login, and there's a build script per OS
+(`packaging/{macos,linux,windows}/`). In practice **only the macOS build has
+been built and run**; the Windows and Linux paths are untested and may need
+fixes. If you try one of them, issues and PRs are welcome.
 
 ## Install
 
-### From source (builds the .app and a .dmg)
+### From source (macOS: builds the .app and a .dmg)
 
 ```bash
 cd acm
@@ -55,6 +67,9 @@ Applications. The build is ad-hoc signed only, so on first launch
 If the build fails with `bad interpreter ... python3.14`, the old
 `.venv-build` points at a Python that no longer exists. Delete it
 (`rm -rf .venv-build`) and rebuild.
+
+Untested scripts also exist for `packaging/linux/build.sh` and
+`packaging/windows/build.ps1`.
 
 ### Run without building
 
