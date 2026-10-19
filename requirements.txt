@@ -1,0 +1,4 @@
+boto3>=1.34
+botocore>=1.34
+pystray>=0.19.5 ; sys_platform != "darwin"
+Pillow>=10.0
