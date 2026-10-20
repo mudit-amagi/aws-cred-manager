@@ -13,6 +13,7 @@ STATUS_COLORS = {
     "needs_login": (219, 90, 27),  # amber
     "partial_error": (219, 90, 27),  # amber
     "idle": (140, 140, 140),       # grey
+    "all_paused": (140, 140, 140),  # grey -- intentional, not an error
     "error": (200, 40, 40),        # red
 }
 

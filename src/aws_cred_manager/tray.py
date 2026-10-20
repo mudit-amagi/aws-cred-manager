@@ -68,6 +68,7 @@ class TrayController:
             "needs_login": "Sign-in required",
             "partial_error": "Some profiles failed",
             "idle": "Idle",
+            "all_paused": "All rows paused",
         }
         return labels.get(self._status, self._status[:60])
 
@@ -93,10 +94,19 @@ class TrayController:
         self._worker.refresh_now(force_login=True)
 
     def _on_toggle_start_on_login(self, icon=None, item=None) -> None:
+        # Keep settings.json's start_on_login in sync too -- nothing else
+        # currently treats it as authoritative (both this toggle and the
+        # Settings dialog always ask platform_startup.is_enabled() live),
+        # but letting it drift is a trap for whatever reads it next.
         if platform_startup.is_enabled():
             platform_startup.disable()
+            want_enabled = False
         else:
             platform_startup.enable()
+            want_enabled = True
+        settings = config_store.load_settings()
+        settings.start_on_login = want_enabled
+        config_store.save_settings(settings)
 
     def _on_quit_clicked(self, icon=None, item=None) -> None:
         self._window.after(0, self._on_quit)
