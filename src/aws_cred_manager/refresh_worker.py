@@ -57,6 +57,13 @@ class RefreshWorker:
         self._wake_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._busy_lock = threading.Lock()
+        # Set by refresh_now(force_login=True) to interrupt a sign-in that's
+        # currently blocked waiting for browser approval -- without this, a
+        # stale attempt (tab closed, or just ignored) occupies the worker
+        # thread until it times out on its own (up to 10 minutes), and every
+        # Refresh Now click in that window is silently queued behind it. See
+        # aws_sso.login()'s cancel_event parameter for where this is used.
+        self._cancel_event = threading.Event()
         # Set when a sign-in attempt timed out / was denied. While set (and
         # no valid SSO token exists), the periodic poll does NOT start a new
         # sign-in -- doing so opened a fresh browser tab on every tick for as
@@ -76,6 +83,11 @@ class RefreshWorker:
         self._wake_event.set()
 
     def refresh_now(self, force_login: bool = False) -> None:
+        if force_login:
+            # Abort any sign-in still polling for approval from an earlier
+            # force_login call -- otherwise this request just queues behind
+            # it (see _cancel_event's comment in __init__).
+            self._cancel_event.set()
         self._pending_force_login = force_login
         self._wake_event.set()
 
@@ -119,10 +131,16 @@ class RefreshWorker:
                     return
                 self._login_blocked = False
 
+            # Clear before use: this run is about to become "the" in-flight
+            # attempt, so it must not immediately cancel itself. A refresh_now()
+            # call that arrives after this point sets it again to interrupt
+            # *this* run, which is exactly what should happen.
+            self._cancel_event.clear()
             self._on_status("refreshing")
             try:
                 result = sync.refresh_credentials(
-                    settings, profiles, self._on_device_auth, force_login=force_login
+                    settings, profiles, self._on_device_auth, force_login=force_login,
+                    cancel_event=self._cancel_event,
                 )
             except (aws_sso.LoginCancelled, aws_sso.LoginTimedOut):
                 self._login_blocked = True

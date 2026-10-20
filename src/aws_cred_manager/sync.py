@@ -34,7 +34,8 @@ and errors are collected instead of aborting the whole batch.
 from __future__ import annotations
 
 import dataclasses
-from typing import Callable, Dict, List
+import threading
+from typing import Callable, Dict, List, Optional
 
 from . import app_paths, aws_sso, config_store, creds_file
 
@@ -86,6 +87,7 @@ def refresh_credentials(
     profiles: List[config_store.ManagedProfile],
     on_device_auth: Callable[[aws_sso.DeviceAuthInfo], None],
     force_login: bool = False,
+    cancel_event: Optional[threading.Event] = None,
 ) -> RefreshResult:
     if not profiles:
         return RefreshResult(profiles=profiles, errors={})
@@ -102,9 +104,15 @@ def refresh_credentials(
 
     session_name = settings.sso_session_name
     if force_login:
-        token = aws_sso.login(settings.sso_start_url, settings.sso_region, session_name, on_device_auth)
+        token = aws_sso.login(
+            settings.sso_start_url, settings.sso_region, session_name, on_device_auth,
+            cancel_event=cancel_event,
+        )
     else:
-        token = aws_sso.ensure_valid_token(settings.sso_start_url, settings.sso_region, session_name, on_device_auth)
+        token = aws_sso.ensure_valid_token(
+            settings.sso_start_url, settings.sso_region, session_name, on_device_auth,
+            cancel_event=cancel_event,
+        )
 
     cred_sections = {}
     errors: Dict[str, str] = {}

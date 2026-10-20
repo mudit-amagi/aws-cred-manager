@@ -106,3 +106,50 @@ def test_ignored_signin_is_not_reopened_by_periodic_polls(tmp_path, monkeypatch)
 
     worker._run_once(force_login=True)    # explicit Refresh Now does retry
     assert calls == [False, True]
+
+
+def test_refresh_now_force_login_sets_cancel_event():
+    # Regression test for: a stale sign-in (tab closed/ignored) blocked the
+    # worker thread -- and every further Refresh Now click -- for up to
+    # poll_timeout_seconds, because nothing told the in-flight login() call
+    # to give up early. refresh_now(force_login=True) must signal that.
+    worker = refresh_worker.RefreshWorker(on_device_auth=lambda i: None, on_status=lambda s: None)
+    assert not worker._cancel_event.is_set()
+    worker.refresh_now(force_login=True)
+    assert worker._cancel_event.is_set()
+
+
+def test_refresh_now_without_force_login_does_not_cancel():
+    # A periodic poll (force_login=False) has no stale sign-in of its own to
+    # interrupt, and must not cancel someone else's in-flight attempt.
+    worker = refresh_worker.RefreshWorker(on_device_auth=lambda i: None, on_status=lambda s: None)
+    worker.refresh_now(force_login=False)
+    assert not worker._cancel_event.is_set()
+
+
+def test_run_once_clears_and_forwards_cancel_event_to_refresh_credentials(tmp_path, monkeypatch):
+    from aws_cred_manager import app_paths
+    monkeypatch.setattr(app_paths, "app_data_dir", lambda: tmp_path)
+    config_store.save_settings(config_store.Settings(sso_start_url="https://x.awsapps.com/start", sso_region="us-east-1"))
+    config_store.save_profiles([_profile("a")])
+
+    seen = {}
+
+    def fake_refresh(*a, **k):
+        seen["cancel_event"] = k.get("cancel_event")
+        seen["was_set_when_called"] = k.get("cancel_event").is_set()
+        return refresh_worker.sync.RefreshResult(profiles=[], errors={})
+
+    monkeypatch.setattr(refresh_worker.sync, "refresh_credentials", fake_refresh)
+
+    worker = refresh_worker.RefreshWorker(on_device_auth=lambda i: None, on_status=lambda s: None)
+    # Simulate: a previous force_login call left the event set (its own
+    # login() call already consumed/raised on it and returned), and now
+    # this run is starting fresh -- it must clear the event before calling
+    # refresh_credentials, not hand down an already-cancelled one.
+    worker._cancel_event.set()
+
+    worker._run_once(force_login=True)
+
+    assert seen["cancel_event"] is worker._cancel_event
+    assert seen["was_set_when_called"] is False

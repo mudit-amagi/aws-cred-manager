@@ -108,7 +108,9 @@ aws s3 ls --profile <profile-name>
    touched.
 5. If an SSO sign-in is ignored or times out, the app shows "Sign-in required"
    and waits. It does not keep opening browser tabs. Click **Refresh Now** to
-   try again.
+   try again -- this also cancels any earlier sign-in that's still waiting
+   on browser approval, so a closed/ignored tab never blocks the new
+   attempt.
 
 ## Using the buttons
 

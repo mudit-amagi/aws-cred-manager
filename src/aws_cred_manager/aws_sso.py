@@ -18,6 +18,7 @@ import calendar
 import dataclasses
 import hashlib
 import json
+import threading
 import time
 import webbrowser
 from pathlib import Path
@@ -142,12 +143,22 @@ def login(
     session_name: str,
     on_device_auth: Callable[[DeviceAuthInfo], None],
     poll_timeout_seconds: int = 600,
+    cancel_event: Optional[threading.Event] = None,
 ) -> SsoToken:
     """Run the full OIDC device-authorization flow, blocking until the user
     approves (or it times out / is denied). Safe to call from a background
     thread; on_device_auth is the caller's hook to surface the user code
     (notification, dialog, etc.) -- this function does not touch any UI
     toolkit itself.
+
+    cancel_event: if given and set while this call is waiting for approval,
+    raises LoginCancelled immediately instead of waiting out the full
+    poll_timeout_seconds. Without this, a sign-in the user ignored (closed
+    the browser tab, or just clicked Refresh Now again) stays outstanding
+    on AWS's side -- the device code is neither approved nor denied, so the
+    poll loop below just keeps getting AuthorizationPendingException -- and
+    blocks the single worker thread, and therefore every subsequent Refresh
+    Now click, for up to poll_timeout_seconds (10 minutes by default).
     """
     oidc = _oidc_client(region)
 
@@ -183,9 +194,15 @@ def login(
     deadline = time.time() + min(info.expires_in, poll_timeout_seconds)
     interval = info.interval
     while True:
+        if cancel_event is not None and cancel_event.is_set():
+            raise LoginCancelled("Sign-in was replaced by a newer request.")
         if time.time() >= deadline:
             raise LoginTimedOut("Sign-in was not approved in time.")
-        time.sleep(interval)
+        if cancel_event is not None:
+            if cancel_event.wait(timeout=interval):
+                raise LoginCancelled("Sign-in was replaced by a newer request.")
+        else:
+            time.sleep(interval)
         try:
             token_resp = oidc.create_token(
                 clientId=client_id,
@@ -222,11 +239,12 @@ def ensure_valid_token(
     region: str,
     session_name: str,
     on_device_auth: Callable[[DeviceAuthInfo], None],
+    cancel_event: Optional[threading.Event] = None,
 ) -> SsoToken:
     token = get_cached_token(session_name)
     if token is not None:
         return token
-    return login(start_url, region, session_name, on_device_auth)
+    return login(start_url, region, session_name, on_device_auth, cancel_event=cancel_event)
 
 
 def list_accounts_and_roles(token: SsoToken) -> List[AccountRole]:
